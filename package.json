@@ -1,0 +1,25 @@
+{
+  "name": "h2-wrapper",
+  "version": "0.0.1",
+  "description": "An HTTP2/1.1 client with SOKCS5 support",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gondone666/h2-wrapper.git"
+  },
+  "keywords": [
+    "http2",
+    "socks5",
+    "socks",
+    "proxy"
+  ],
+  "author": "gondone666",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gondone666/h2-wrapper/issues"
+  },
+  "homepage": "https://github.com/gondone666/h2-wrapper#readme"
+}
