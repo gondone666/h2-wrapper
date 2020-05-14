@@ -4,7 +4,7 @@ An HTTP2/1.1 client with SOKCS5 support
 **0.0.1** - HTTP2/SOCKS5 Support
 ###### TODO
 - [x] HTTP2/SOCKS5 Support
-- [ ] HTTSP1.1 Support
+- [ ] HTTPS1/1.1 Support
 - [ ] Plain HTTP Support
 - [ ] .....................
 ###### Example
