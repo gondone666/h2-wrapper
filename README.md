@@ -1,10 +1,11 @@
 # h2-wrapper
 An HTTP2/1.1 client with SOKCS5 support
 ###### VERSION
-**0.0.4** - Normalize request arguments (url, options) or (url) or (options)
-**0.0.3** - Tough Cookie support
-**0.0.2** - HTTP1.1 support
-**0.0.1** - HTTP2/SOCKS5 Support
+0.0.5 Bugs fixed  
+0.0.4 Normalize request arguments  
+0.0.3 Tough Cookie support  
+0.0.2 HTTP1.1 support  
+0.0.1 HTTP2/SOCKS5 Support  
 
 ###### TODO
 - [x] HTTP2/SOCKS5 Support

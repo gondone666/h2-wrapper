@@ -132,7 +132,7 @@ class HWrapper {
 							throw new Error(error)
 						} else {
 							self.res.rawBody = body.toString();
-							self.res.body = type == "application/json" ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+							self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
 							resolve();
 						}
 					});
@@ -143,14 +143,14 @@ class HWrapper {
 							throw new Error(error)
 						} else {
 							self.res.rawBody = body.toString()
-							self.res.body = type == "application/json" ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+							self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
 							resolve();
 						}
 					});
 					break;
 				default:
 					self.res.rawBody = buf.toString();
-					self.res.body = type == "application/json" ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+					self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
 					resolve();
 					break;
 			}
@@ -184,7 +184,8 @@ class HWrapper {
 			options = { ...opts, ...uri.parse(url), url };
 
 		} else if (typeof url === "object") {
-			options = { ...opts,...url, url: url.toString() };
+			if (typeof url.url === "string") options = { ...opts, ...url,...uri.parse(url.url)};
+			else options = { ...opts, ...url, url: url.toString() };
 		}
 		if (!options.method) {
 			options.method = 'GET';
@@ -192,16 +193,14 @@ class HWrapper {
 		if (!options.url) {
 			throw new Error("Missing URL param");
 		}
+		
 		if (!options.port) options.port = options.protocol.slice(0, -1) === 'https' ? 443 : 80;
 		options.servername = options.host;
 		options.origin = options.protocol + '//' + options.host;
 		options = merge(options, self.options, {
 			clone: false
 		})
-		this.res = new Promise((resolve, reject) => {
-			function finish() {
-				Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res));
-			}
+		return new Promise((resolve, reject) => {
 			options.jar.getCookieString(options.url, (error, cookie) => {
 				if (error) throw new Error(error);
 				if (cookie.length > 0) options.headers["cookie"] = cookie;
@@ -228,17 +227,21 @@ class HWrapper {
 				}
 				req.on("response", (res) => {
 					if (self.sessions[options.origin].version == 'h2') {
-						self.res = { headers: res, data: [], url: options.url, httpVersion: self.sessions[options.origin].version, jar:options.jar};
+						self.res = { _headers:options.headers, headers: res, data: [], url: options.url, httpVersion: self.sessions[options.origin].version, jar:options.jar};
 						req.on('data', function (chunk) {
+							if (!self.res.data) {
+								console.log(self.res);
+								process.exit(0)
+							}
 							self.res.data.push(chunk);
 						});
-						req.on('end', finish);
+						req.on('end', () => Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
 					} else {
 						self.res = { headers: res.headers, data: [], url: options.url, httpVersion: self.sessions[options.origin].version, jar: options.jar };
 						res.on('data', function (chunk) {
 							self.res.data.push(chunk);
 						});
-						res.on('end', finish);
+						res.on('end', () =>Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
                     }
 				});
 				req.on("error", function (err) {
@@ -246,7 +249,6 @@ class HWrapper {
 				})
 			})
 		});
-		return self.res;
 	}
 	close() {
 		const self = this;
