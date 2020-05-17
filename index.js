@@ -36,9 +36,25 @@ class H1Session extends Session {
 		})
 	}
 	reorderHeaders(options) {
+		const chrome = [
+			"User-Agent",
+			"DNT",
+			"Accept",
+			"Sec-Fetch-Site",
+			"Sec-Fetch-Mode",
+			"Sec-Fetch-Dest",
+			"Referer",
+			"Accept-Encoding",
+			"Accept-Language",
+			"Cookie"
+		];
 		let reorder = {
-			"host": options.headers["host"] ? options.headers["host"] : options.host,
-			"connection": "keep-alive"
+			"Host": options.headers["host"] ? options.headers["host"] : options.host,
+			"Connection": "keep-alive",
+		}
+		for (let i = 0; i < chrome.length; i++) {
+			let key = chrome[i];
+			if (!reorder[key] && options.headers[key]) reorder[key] = options.headers[key];
 		}
 		for (var key in options.headers) {
 			if (!reorder[key]) reorder[key] = options.headers[key];
@@ -98,9 +114,7 @@ class HWrapper {
 				};
 				try {
 					SocksClient.createConnection(socksOpts).then(info => {
-						options.socket = info.socket;
-						options.settings = {};
-						const socket = tls.connect(options, () => {
+						const socket = tls.connect({ socket: info.socket, host: options.host, port: options.port, servername: options.host, maxVersion: 'TLSv1.3', echdCurve: "X25519:secp256r1:secp384r1", ciphers:options.ciphers}, () => {
 							if (socket.alpnProtocol == 'h2') {
 								self.sessions[options.origin] = new H2Session();
 							} else {
@@ -113,7 +127,14 @@ class HWrapper {
 					reject(err)
 				}
 			} else {
-				// todo non proxied requests
+				const socket = tls.connect({ host: options.host, port: options.port, servername: options.host, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3', echdCurve: "X25519:secp256r1:secp384r1", ciphers:options.ciphers}, () => {
+					if (socket.alpnProtocol == 'h2') {
+						self.sessions[options.origin] = new H2Session();
+					} else {
+						self.sessions[options.origin] = new H1Session();
+					}
+					self.sessions[options.origin].connect(options, socket).then(() => resolve());
+				});
 			}
 		});
 	}
@@ -197,14 +218,16 @@ class HWrapper {
 		if (!options.port) options.port = options.protocol.slice(0, -1) === 'https' ? 443 : 80;
 		options.servername = options.host;
 		options.origin = options.protocol + '//' + options.host;
-		options = merge(options, self.options, {
+		options = merge(self.options, options, {
 			clone: false
 		})
 		return new Promise((resolve, reject) => {
-			options.jar.getCookieString(options.url, (error, cookie) => {
-				if (error) throw new Error(error);
-				if (cookie.length > 0) options.headers["cookie"] = cookie;
-			})
+			if (!options.headers["Cookie"]) {
+				options.jar.getCookieString(options.url, (error, cookie) => {
+					if (error) throw new Error(error);
+					if (cookie.length > 0) options.headers["Cookie"] = cookie;
+				})
+			}
 			self.tlsSession(options).then(() => {
 				if (!options.body) options.body = "";
 				if (["POST", "PATCH"].includes(options.method)) {
@@ -227,25 +250,25 @@ class HWrapper {
 				}
 				req.on("response", (res) => {
 					if (self.sessions[options.origin].version == 'h2') {
-						self.res = { _headers:options.headers, headers: res, data: [], url: options.url, httpVersion: self.sessions[options.origin].version, jar:options.jar};
+						self.res = { _headers:options.headers, headers: res, data: [], url: options.url, httpVersion: self.sessions[options.origin].version};
 						req.on('data', function (chunk) {
 							if (!self.res.data) {
-								console.log(self.res);
 								process.exit(0)
 							}
 							self.res.data.push(chunk);
 						});
 						req.on('end', () => Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
 					} else {
-						self.res = { headers: res.headers, data: [], url: options.url, httpVersion: self.sessions[options.origin].version, jar: options.jar };
+						self.res = { _headers: options.headers,headers: res.headers, data: [], url: options.url, httpVersion: self.sessions[options.origin].version};
 						res.on('data', function (chunk) {
-							self.res.data.push(chunk);
+								self.res.data.push(chunk);
 						});
 						res.on('end', () =>Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
                     }
 				});
 				req.on("error", function (err) {
-					throw new Error(err)
+					res.resume();
+					console.log(err)
 				})
 			})
 		});
