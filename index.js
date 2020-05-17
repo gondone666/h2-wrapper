@@ -7,7 +7,6 @@ const zlib = require("zlib");
 const merge = require("deepmerge")
 const SocksClient = require("socks").SocksClient;
 const tls = require("tls");
-const clone = require("clone")
 
 class Session {
 	constructor(version) {
