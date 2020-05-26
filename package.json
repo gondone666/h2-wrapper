@@ -1,6 +1,6 @@
 {
   "_from": "h2-wrapper",
-  "_id": "h2-wrapper@0.0.5",
+  "_id": "h2-wrapper@0.0.6",
   "_inBundle": false,
   "_integrity": "sha512-9ktkpctTXyeN8l4bmT7MbTl9vs3Rbrh+kSCkagozJoaEnSqFiieow+8SraQHJvSGgGfXW4AEaST7zUss82Jkxg==",
   "_location": "/h2-wrapper",
@@ -49,5 +49,5 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "version": "0.0.5"
+  "version": "0.0.6"
 }

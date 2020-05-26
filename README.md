@@ -1,6 +1,7 @@
 # h2-wrapper
 An HTTP2/1.1 client with SOKCS5 support
 ###### VERSION
+0.0.6 Bugs fixed  
 0.0.5 Bugs fixed  
 0.0.4 Normalize request arguments  
 0.0.3 Tough Cookie support  

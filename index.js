@@ -8,6 +8,8 @@ const merge = require("deepmerge")
 const SocksClient = require("socks").SocksClient;
 const tls = require("tls");
 
+const chrome_ciphers = "GREASE:TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA:DES-CBC3-SHA";
+
 class Session {
 	constructor(version) {
 		this.socket = false;
@@ -73,19 +75,43 @@ class H2Session extends Session {
 		return new Promise((resolve, reject) => {
 			this.socket = http2.connect(options, {
 				createConnection: () => socket
-			}, () => resolve())
+			}, () => {
+				resolve()
+			})
 		})
 	}
 	reorderHeaders(options) {
+		const chrome = [
+			":method",
+			":authority",
+			":scheme",
+			":path",
+			"x-sec-clge-req-type",
+			"dnt",
+			"request-id",
+			"user-agent",
+			"accept",
+			"origin",
+			"sec-fetch-site",
+			"sec-fetch-mode",
+			"sec-fetch-dest",
+			"referer",
+			"accept-encoding",
+			"accept-language",
+			"cookie"
+		];
 		let reorder = {
 			":method": options.headers[":method"] ? options.headers[":method"] : options.method,
 			":authority": options.headers[":authority"] ? options.headers[":authority"] : options.host,
 			":scheme": options.headers[":scheme"] ? options.headers[":scheme"] : options.protocol.slice(0, -1),
-			":path": options.headers[":path"] ? options.headers[":path"] : options.path,
-			"origin": options.headers["origin"] ? options.headers["origin"] : options.origin
+			":path": options.headers[":path"] ? options.headers[":path"] : options.path
+		}
+		for (let i = 0; i < chrome.length; i++) {
+			let key = chrome[i];
+			if (!reorder[key.toLowerCase()] && options.headers[key]) reorder[key.toLowerCase()] = options.headers[key];
 		}
 		for (var key in options.headers) {
-			if (!reorder[key]) reorder[key] = options.headers[key];
+			if (!reorder[key]) reorder[key.toLowerCase()] = options.headers[key];
 		}
 		return reorder;
 	}
@@ -99,8 +125,11 @@ class HWrapper {
 			this.options.jar = new tough.CookieJar();
 		}
 		this.options.ALPNProtocols = ['h2', 'http/1.1', 'http/1.0'];
+		if (!this.options.ciphers) {
+			this.options.ciphers = chrome_ciphers;
+		}
 		this.res = false;
-    }	
+	}	
 	tlsSession(options) {
 		const self = this;
 		return new Promise((resolve, reject) => {
@@ -113,7 +142,7 @@ class HWrapper {
 				};
 				try {
 					SocksClient.createConnection(socksOpts).then(info => {
-						const socket = tls.connect({ socket: info.socket, host: options.host, port: options.port, servername: options.host, maxVersion: 'TLSv1.3', echdCurve: "X25519:secp256r1:secp384r1", ciphers:options.ciphers}, () => {
+						const socket = tls.connect({ ALPNProtocols: ['h2', 'http/1.1', 'http/1.0'], rejectUnauthorized: false, socket: info.socket, host: options.hostname, port: options.port, servername: options.hosthame, echdCurve: "GREASE:X25519", ciphers:options.ciphers}, () => {
 							if (socket.alpnProtocol == 'h2') {
 								self.sessions[options.origin] = new H2Session();
 							} else {
@@ -126,7 +155,7 @@ class HWrapper {
 					reject(err)
 				}
 			} else {
-				const socket = tls.connect({ host: options.host, port: options.port, servername: options.host, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3', echdCurve: "X25519:secp256r1:secp384r1", ciphers:options.ciphers}, () => {
+				const socket = tls.connect({ ALPNProtocols: ['h2', 'http/1.1', 'http/1.0'], rejectUnauthorized: false, host: options.hostname, port: options.port, servername: options.hostname, echdCurve: "GREASE:X25519", ciphers:options.ciphers}, () => {
 					if (socket.alpnProtocol == 'h2') {
 						self.sessions[options.origin] = new H2Session();
 					} else {
@@ -137,22 +166,23 @@ class HWrapper {
 			}
 		});
 	}
-	decodeReseponse() {
+	decodeReseponse(res) {
 		const self = this;
 		return new Promise((resolve, reject) => {
-			self.res.rawBody = "";
-			self.res.body = "";
-			let buf = Buffer.concat(self.res.data), headers = self.res.headers ? self.res.headers : {};
+			res.rawBody = "";
+			res.body = "";
+			let buf = Buffer.concat(res.data), headers = res.headers ? res.headers : {};
 			if (buf.length == 0) resolve();
 			var encoding = headers['content-encoding'] ? headers['content-encoding'] : '', type = headers['content-type'] ? headers['content-type']:'';
 			switch (encoding) {
 				case 'gzip':
 					zlib.gunzip(buf, function (error, body) {
 						if (error) {
+							console.log(res)
 							throw new Error(error)
 						} else {
-							self.res.rawBody = body.toString();
-							self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+							res.rawBody = body.toString();
+							res.body = type.includes("application/json") ? JSON.parse(res.rawBody) : res.rawBody;
 							resolve();
 						}
 					});
@@ -162,24 +192,24 @@ class HWrapper {
 						if (error) {
 							throw new Error(error)
 						} else {
-							self.res.rawBody = body.toString()
-							self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+							res.rawBody = body.toString()
+							res.body = type.includes("application/json") ? JSON.parse(res.rawBody) : res.rawBody;
 							resolve();
 						}
 					});
 					break;
 				default:
-					self.res.rawBody = buf.toString();
-					self.res.body = type.includes("application/json") ? JSON.parse(self.res.rawBody) : self.res.rawBody;
+					res.rawBody = buf.toString();
+					res.body = type.includes("application/json") ? JSON.parse(res.rawBody) : res.rawBody;
 					resolve();
 					break;
 			}
 		});
 	}
-	setCookies() {
+	setCookies(res) {
 		const self = this;
 		return new Promise((resolve, reject) => {
-			let headers = self.res.headers ? self.res.headers : {}, cookies=[];
+			let headers = res.headers ? res.headers : {}, cookies=[];
 			if (!headers['set-cookie']) {
 				resolve();
 			}
@@ -189,7 +219,7 @@ class HWrapper {
 				cookies = [tough.Cookie.parse(headers['set-cookie'])];
 			}
 			cookies.forEach((c) => {
-				self.options.jar.setCookieSync(c, self.res.url, (error) => {
+				self.options.jar.setCookieSync(c, res.url, (error) => {
 					if (error) throw new Error(error)
 				})
 			})
@@ -213,60 +243,59 @@ class HWrapper {
 		if (!options.url) {
 			throw new Error("Missing URL param");
 		}
-		
 		if (!options.port) options.port = options.protocol.slice(0, -1) === 'https' ? 443 : 80;
-		options.servername = options.host;
 		options.origin = options.protocol + '//' + options.host;
 		options = merge(self.options, options, {
 			clone: false
 		})
 		return new Promise((resolve, reject) => {
-			if (!options.headers["Cookie"]) {
+			if (!options.headers["cookie"]) {
 				options.jar.getCookieString(options.url, (error, cookie) => {
 					if (error) throw new Error(error);
-					if (cookie.length > 0) options.headers["Cookie"] = cookie;
+					if (cookie.length > 0) options.headers["cookie"] = cookie;
 				})
 			}
 			self.tlsSession(options).then(() => {
 				if (!options.body) options.body = "";
-				if (["POST", "PATCH"].includes(options.method)) {
+				if (["POST", "PATCH", "PUT"].includes(options.method)) {
 					if (options.form) {
 						options.body = querystring.stringify(options.form);
 						options.headers["content-type"] = options.headers["content-type"] ? options.headers["content-type"] : "application/x-www-form-urlencoded";
-
 					} else if (options.json) {
-						options.body = JSON.stringify(options.json);
+						options.body = new Buffer(JSON.stringify(options.json));
 						options.headers["content-type"] = options.headers["content-type"] ? options.headers["content-type"] : "application/json";
 					}
 					options.headers["content-length"] = options.body.length;
 				}
+				options.headers["origin"] ? options.headers["origin"] : options.origin;
 				options.headers = self.sessions[options.origin].reorderHeaders(options);
 				var req = self.sessions[options.origin].request(options);
-				if (["POST", "PATCH"].includes(options.method)) {
-					req.end(options.body);
+				if (["POST", "PATCH", "PUT"].includes(options.method)) {
+					if (options.debug) console.log(options.body)
+					req.write(options.body);
+					req.end();
 				} else {
 					req.end();
 				}
-				req.on("response", (res) => {
+				req.once('drain', function () {
+					console.log('drain', arguments);
+				})
+				req.once("response", (response) => {
 					if (self.sessions[options.origin].version == 'h2') {
-						self.res = { _headers:options.headers, headers: res, data: [], url: options.url, httpVersion: self.sessions[options.origin].version};
+						let res = { _headers:options.headers, headers: response, data: [], url: options.url, httpVersion: self.sessions[options.origin].version};
 						req.on('data', function (chunk) {
-							if (!self.res.data) {
-								process.exit(0)
-							}
-							self.res.data.push(chunk);
+							res.data.push(chunk);
 						});
-						req.on('end', () => Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
+						req.once('end', () => Promise.all([self.decodeReseponse(res), self.setCookies(res)]).then(() => resolve(res)));
 					} else {
-						self.res = { _headers: options.headers,headers: res.headers, data: [], url: options.url, httpVersion: self.sessions[options.origin].version};
-						res.on('data', function (chunk) {
-								self.res.data.push(chunk);
+						let res = { _headers: options.headers, headers: response.headers, data: [], url: options.url, httpVersion: self.sessions[options.origin].version };
+						response.on('data', function (chunk) {
+							res.data.push(chunk);
 						});
-						res.on('end', () =>Promise.all([self.decodeReseponse(), self.setCookies()]).then(() => resolve(self.res)));
-                    }
+						response.once('end', () => Promise.all([self.decodeReseponse(res), self.setCookies(res)]).then(() => resolve(res)));
+					}
 				});
-				req.on("error", function (err) {
-					res.resume();
+				req.once("error", function (err) {
 					console.log(err)
 				})
 			})
@@ -277,7 +306,7 @@ class HWrapper {
 		for (let host in self.sessions) {
 			self.sessions[host].close();
 		}
-    }
+	}
 }
 
 module.exports = HWrapper
